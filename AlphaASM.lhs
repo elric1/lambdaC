@@ -18,8 +18,9 @@ alphaAsmOut (CP x) = header ++ (concat $ map asmOut' x) ++ footer
 	footer = "\t.ident \"LCC: (Lambda C) lcc-1.0\"\n"
 
 asmOut' (DeclVar d s)	= name d ++ ":\n"
-			  ++ "\t.ascii " ++ show s ++ "\n"
+			  ++ "\t.ascii \"" ++ quote s ++ "\\0\"\n"
   where name (Cdecl _ s) = s
+	quote = id
 asmOut' (Decl d)	= "	.comm	" ++ name d ++ "," ++ size d ++ "\n"
   where	name (Cdecl _ s) = s
 	size _		 = "8,8"
@@ -34,7 +35,7 @@ asmOut' (Func f)	=  "\t.align 5\n"
 			++ "$" ++ name f ++ "..ng:\n"
 			++ "\t.prologue 0\n"
 			++ decode f
-			++ name f ++ "_bail:\n"
+			++ {-name f-}"main" ++ "_bail:\n"
 			++ "\tldgp $29,0($26)\n"
 			++ "\tldq $26,0($30)\n"
 			++ killstack
@@ -79,6 +80,11 @@ decodeE reg (MathSubt x y)	= decodeE reg x ++ decodeE (reg+1) y
 -- function arguments, so far.
 decodeE reg (FuncCall (Ident x) y)	= concat (map (uncurry decodeE) (zip [16..21] y))
 				  ++ "\tjsr $26," ++ x ++ "\n"
+				  ++ "\tldgp $29,0($26)\n"
+decodeE reg (Assign e@(Ident x) f) = decodeE reg f
+				     ++ decodeE (reg+1) e
+				     ++ "\tstq $" ++ show reg ++ ",0($"
+				     ++ show (reg+1) ++ ")\n"
 decodeE _ _			= "unknown expression\n"
 
 \end{code}

@@ -1,0 +1,58 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{haskell}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\hypersetup{colorlinks=true}
+
+\title{The Lambda C Compiler}
+\author{Roland C. Dowdeswell}
+
+\theoremstyle{plain}
+\newtheorem{thm}{Theorem}[section]
+\newtheorem{prop}[thm]{Proposition}
+\newtheorem*{cor}{Corollary}
+\theoremstyle{definition}
+\newtheorem{defn}{Definition}[section]
+\newtheorem{exmp}{Example}[section]
+
+%%
+%% make an & operator.
+\DeclareMathOperator{\bitand}{\texttt{\&}}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+
+Hmmm, well, I wanted to write a compiler in Haskell and C
+seemed to be a decent language to do.
+
+\end{abstract}
+
+\clearpage
+\tableofcontents
+%% \listoftables
+\clearpage
+
+\begin{section}{Prerequisites}
+This section will discuss and have references to material that
+is assumed in the rest of the article.  This subsumes but is
+not limited to:
+\begin{enumerate}
+\item		working knowledge of C, and
+\item		working knowledge of Haskell.
+\end{enumerate}
+\end{section}
+
+\clearpage
+\begin{section}{Implementation}
+\input{Cprogram.lhs}
+\end{section}
+
+%% \bibliography{EffManCIDR}
+%% \bibliographystyle{plain}
+
+\end{document}

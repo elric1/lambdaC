@@ -1,10 +1,23 @@
 \begin{code}
 module Cprogram where
 
-import ParseLib
+import ParseSTLib
 import Char
+import Monad
 
-parseC = CP . fst . head . papply toplevel . fst . head . papply deComment
+import CPPLex
+import CPreProcess
+
+parseCFile :: String -> IO Cprogram
+parseCFile fn = do tokens <- preProcessFile [] fn
+		   return $ parseC $ zip [1..] tokens
+
+parseC = CP . fst3 . head . papply toplevel () . filter (ppIsNotWhite . snd)
+  where	fst3 (x,y,z) = x
+	ppIsNotWhite (PPnewline)	= False
+	ppIsNotWhite (PPspace _)	= False
+	ppIsNotWhite (PPcomment _)	= False
+	ppIsNotWhite _			= True
 
 --
 -- let us think a little and make a proper data structure.
@@ -19,7 +32,8 @@ instance Show Cprogram where
 -}
 
 -- parsing C:
-toplevel = junk >> many ext_decl
+toplevel :: Parser () (Integer,PPTokenT) [Cconstructs]
+toplevel = many ext_decl
 
 data Cconstructs = Decl Cdecl | Func Cfunc | Typedef Cdecl
 		   | Structdef String [Cdecl] | DeclVar Cdecl String
@@ -34,24 +48,23 @@ instance Show Cconstructs where
 	show (DeclVar x y) = show x ++ " = " ++ show y ++ ";\n"
 -}
 
+ext_decl :: Parser () (Integer,PPTokenT) Cconstructs
 ext_decl = typedef +++ structdef +++ function +++ ext2_var_decl
 
-typedef = do	symbol "typedef"
+typedef = do	sym "typedef"
 		t <- decl
-		symbol ";"
+		punct ";"
 		return (Typedef t)
 
-structdef = do	symbol "union"
-		name <- token cIdent
-		decls <- brace (decl `sepby` token (char ';'))
-		symbol ";"
+structdef = do	sym "union"
+		name <- cIdent
+		decls <- brace (decl `sepby` punct ";")
+		punct ";"
 		return (Structdef name decls)
 
 function = do	t <- ftype
 		n <- fname
-		symbol "("
-		a <- fargs
-		symbol ")"
+		a <- paren fargs
 		b <- statement_block
 		return (Func (Cfunc t n (Args a) b))
 
@@ -65,7 +78,7 @@ data Type =
 	| DoubleType | FloatType | LongLongType
 	| UnsignedType Type | FuncType Type [Cdecl]
 	| SizeType | VoidType
-	| PtrType Int Type -- size of array is Int?  Integer would be better
+	| PtrType Integer Type -- size of array is Int?  Integer would be better
 	| ConstType Type
 	| SignedType Type
 	deriving Show
@@ -75,24 +88,27 @@ instance Show Type where
 	show x = showtype x ""
 -}
 
-types = [	(IntType, symbol "int"),
-		(LongLongType, symbol "long" >> symbol "long" >> (symbol "int" +++ symbol "")),
-		(LongType, symbol "long" >> (symbol "int" +++ symbol "")),
-		(ShortType, symbol "short" >> (symbol "int" +++ symbol "")),
-		(DoubleType, symbol "double"),
-		(FloatType, symbol "float"),
-		(CharType, symbol "char"),
-		(VoidType, symbol "void"),
-		(SizeType, symbol "size_t")
+types = [	(IntType, sym "int"),
+		(LongLongType, sym "long" >> sym "long" >> (sym "int" +++ sym "")),
+		(LongType, sym "long" >> (sym "int" +++ sym "")),
+		(ShortType, sym "short" >> (sym "int" +++ sym "")),
+		(DoubleType, sym "double"),
+		(FloatType, sym "float"),
+		(CharType, sym "char"),
+		(VoidType, sym "void"),
+		(SizeType, sym "size_t")
 	]
+
+decl :: Parser () (Integer, PPTokenT) Cdecl
+-- decl = do return (Cdecl IntType "huh?!")
 
 decl = typequal >>= (\x -> gtype >>= (\y -> return (x y))) >>= (\x -> decl_rest >>= (\y -> return (y x)))
 gtype = foldr (+++) mzero (map p types)
   where	p (x,y) = y >> return (Cdecl x "")
 
-typequal =	(symbol "const" >> return addConst) +++
-		(symbol "unsigned" >> return addUnsigned) +++
-		(symbol "signed" >> return addSigned) +++
+typequal =	(sym "const" >> return addConst) +++
+		(sym "unsigned" >> return addUnsigned) +++
+		(sym "signed" >> return addSigned) +++
 		return id
 
 addUnsigned (Cdecl t n) = Cdecl (UnsignedType t) n
@@ -101,28 +117,27 @@ addSigned (Cdecl t n) = Cdecl (SignedType t) n
 decl_rest = decl_choice >>= (\x -> decl_post >>= (\y -> return (y . x)))
 decl_choice = decl_paren +++ ptr +++ constT +++ getName +++ nothing id
 decl_paren = paren decl_rest >>= (\x -> decl_post >>= (\y -> return (x . y)))
-ptr = symbol "*" >> (decl_rest >>= (\x -> return (x . addPtr))) --- +++ return PtrType)
-constT = symbol "const" >> (decl_rest >>= (\x -> return (x . addConst)))
+ptr = punct "*" >> (decl_rest >>= (\x -> return (x . addPtr))) --- +++ return PtrType)
+constT = sym "const" >> (decl_rest >>= (\x -> return (x . addConst)))
 
 decl_post = many (decl_func +++ decl_arry) >>= (\x -> return (foldr (.) id x))
 decl_func = (paren gargs >>= (\x -> return (flip addFunc x)))
-decl_arry = sbracket arry_brkt >>= (\x -> return (addArry x))
+{-
+decl_arry = brack arry_brkt >>= (\x -> return (addArry x))
+-}
+decl_arry = int >> return id
 arry_brkt = int +++ (nothing "" >> return 0)
-gargs = decl `sepby` token (char ',')
-
-sbracket x = bracket lbracket x rbracket
-  where	lbracket = token (char '[')
-	rbracket = token (char ']')
+gargs = decl `sepby` punct ","
 
 addPtr = addArry 0
 addArry  s (Cdecl t n) = Cdecl (PtrType s t) n
 addFunc  (Cdecl t n) x = Cdecl (FuncType t x) n
 addConst (Cdecl t n)   = Cdecl (ConstType t) n
 
-getName = token cIdent >>= return . putName
+getName = cIdent >>= return . putName
 putName n (Cdecl t _) = Cdecl t n
 
-nothing x = symbol "" >> return x
+nothing x = do  return x
 eat x y = x >> return y
 
 ftype = foldr (+++) mzero (map p types)
@@ -131,8 +146,8 @@ ftype = foldr (+++) mzero (map p types)
 newtype Args = Args [Cdecl]
 	deriving Show
 
-fargs = decl `sepby` token (char ',')
-fname = token cIdent
+fargs = decl `sepby` punct ","
+fname = cIdent
 
 showtype SizeType     n = space_if "size_t" n
 showtype VoidType     n = space_if "void" n
@@ -185,10 +200,11 @@ instance Show StmntBlock where
 	show (SB x y) = "{\n" ++ concat (map (++";\n") (map show x)) ++ concatWith "\n" (map show y) ++ "\n}"
 -}
 
-statement_block = do	symbol "{"
+ -- make this into a (vars,statements) <- brace something
+statement_block = do	punct "{"
 			vars <- var_block
 			statements <- stmnts
-			symbol "}"
+			punct "}"
 			return (SB vars statements)
 
 data Stmnt =
@@ -221,7 +237,7 @@ forExprShow (e,f,g) = show e ++ "; " ++ show f ++ "; " ++ show g
 data Expr =
  -- the `terms'.  Maybe I should actually define them as simply
  -- a `Term' type?  I think that would be good in a while.
-	  Num		Int
+	  Num		Integer
 	| Ident		String
 	| StringLit	String
 
@@ -322,34 +338,23 @@ instance Show Expr where
 	show (CompareNeq x y)	= "(" ++ show x ++ "!=" ++ show y ++ ")"
 -}
 
---
---  Parser Helpers:
-
-cComment = bracket (string "/*") (many' item) (string "*/")
-cxxComment = bracket (string "//") (many' item) (string "\n")
-deComment = many ((cComment >> return ' ') +++ (cxxComment >> return ' ')
-	    +++ item)
-
-many'              :: Parser a -> Parser [a]
---many' p             = (many1' p `mplus` return [])
-many' p             = (return [] `mplus` many1' p)
-
-many1'             :: Parser a -> Parser [a]
-many1' p            = do {x <- p; xs <- many' p; return (x:xs)}
+brack x = bracket lbracket x rbracket
+  where	lbracket = punct "["
+	rbracket = punct "]"
 
 paren x = bracket lparen x rparen
-lparen = token (char '(')
-rparen = token (char ')')
+  where	lparen = punct "("
+	rparen = punct ")"
 
 brace x = bracket lbrace x rbrace
-lbrace = token (char '{')
-rbrace = token (char '}')
+  where	lbrace = punct "{"
+	rbrace = punct "}"
 
 
 ext2_var_decl = ext_var_decl >>= \t -> return (Decl t)
 
 var_block = many ext_var_decl
-ext_var_decl = decl >>= eat (symbol ";")
+ext_var_decl = decl >>= eat (punct ";")
 
 stmnts = many stmnt
 
@@ -360,53 +365,54 @@ stmnt = foldr (+++) mzero stmntlist
 
 block_stmnt = statement_block >>= return . BlockStmnt
 
-if_stmnt = do	symbol "if"
+if_stmnt = do	sym "if"
 		e <- paren expr
 		s <- stmnt
 		return (IfStmnt e s)
 
-for_stmnt = do	symbol "for"
+for_stmnt = do	sym "for"
 		e <- paren for_expr
 		s <- stmnt
 		return (ForStmnt e s)
 
 for_expr = do	e <- expr
-		token (char ';')
+		punct ";"
 		f <- expr
-		token (char ';')
+		punct ";"
 		g <- expr
 		return (e,f,g)
 
-while_stmnt = do	symbol "while"
+while_stmnt = do	sym "while"
 			e <- paren expr
 			s <- stmnt
 			return (WhileStmnt e s)
 
-dowhile_stmnt = do	symbol "do"
+dowhile_stmnt = do	sym "do"
 			s <- stmnt
-			symbol "while"
+			sym "while"
 			e <- paren expr
-			symbol ";"
+			punct ";"
 			return (DoWhileStmnt s e)
 
-goto_stmnt = do	symbol "goto"
-		t <- token cIdent		-- XXX: hack
-		symbol ";"
+goto_stmnt = do	sym "goto"
+		t <- cIdent			-- XXX: hack
+		punct ";"
 		return (GotoStmnt t)
 
-label_stmnt = do	i <- token cIdent	-- XXX: hack
-			symbol ":"
+label_stmnt = do	i <- cIdent		-- XXX: hack
+			punct ":"
 			return (Label i)
 
-return_stmnt = do	symbol "return"
+return_stmnt = do	sym "return"
 			e <- expr
-			symbol ";"
+			punct ";"
 			return (ReturnStmnt e)
 
 expr_stmnt = do	e <- expr
-		symbol ";"
+		punct ";"
 		return (ExprStmnt e)
 
+expr :: Parser () (Integer,PPTokenT) Expr
 expr = expr' 15
 expr' n = term >>= rest
   where	rest t = ops t +++ return t
@@ -457,56 +463,171 @@ meta_oplist = map (\(n,p) -> map (op n) p) (zip [1..] mo)
 		 (">>=", AssignRShift), ("<<=", AssignLShift)],
 		[]] :: [[(String, Expr -> Expr -> Expr)]]			-- comma.
 
-op :: Int -> (String, Expr -> Expr -> Expr) -> Expr -> Parser Expr
-op n (s,c) t = do	symbol s
+-- op :: Integer -> (String, Expr -> Expr -> Expr) -> Expr -> Parser Expr
+op n (s,c) t = do	punct s
 			a <- expr' n
 			return (c t a)
 
-number = integer >>= return . Num
-term  = (unop >>= (\x -> term >>= (\y -> return (x y)))) +++ func_call +++ cConst +++
-	token icIdent +++ paren (expr' 15)
+number = int >>= return . Num
+term  = (unop >>= (\x -> term >>= (\y -> return (x y)))) +++ func_call +++
+	number +++ cConst +++ icIdent +++ stringlit +++ paren (expr' 15)
 
-func_call = token icIdent >>= (\x -> paren (func_args x))
-func_args x = (expr `sepby` token (char ',')) >>= (\y -> return (FuncCall x y))
+func_call = icIdent >>= (\x -> paren (func_args x))
+func_args x = (expr `sepby` punct ",") >>= (\y -> return (FuncCall x y))
 
 {-
-unop = (symbol "*" +++ symbol "++" +++ symbol "!" +++ symbol "~")
+unop = (punct "*" +++ punct "++" +++ punct "!" +++ punct "~")
 	>> return (Num 1)
 -}
-unop = 	(symbol "!" >> return LogicalNot) +++
-	(symbol "~" >> return BitwiseNot) +++
-	(symbol "-" >> return MathNegate) +++
-	(symbol "++" >> return AssignPreInc) +++
-	(symbol "--" >> return AssignPreDec) +++
-	(symbol "sizeof" >> return Sizeof) +++
-	(symbol "*" >> return DeReference) +++
-	(symbol "&" >> return Reference)
+unop = 	(punct "!" >> return LogicalNot) +++
+	(punct "~" >> return BitwiseNot) +++
+	(punct "-" >> return MathNegate) +++
+	(punct "++" >> return AssignPreInc) +++
+	(punct "--" >> return AssignPreDec) +++
+	(sym   "sizeof" >> return Sizeof) +++
+	(punct "*" >> return DeReference) +++
+	(punct "&" >> return Reference)
 
 icIdent = cIdent >>= return . Ident
-cIdent = many1 (foldr (+++) mzero (map char cChars))
 
 cChars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "_"
 
 data Number = IntT Integer | DoubleT Double
 	deriving Show
 
-cConst = number +++ stringlit
-
-iNT = int >>= return . fromIntegral
-
-parsenum = iNT >>= (\x -> (fracpart x >>= return . DoubleT) +++ return (IntT x))
-  where fracpart x = do	char '.'
-			y <- many digit
-			return (fromIntegral x + foldr catdig 0 y)
-	catdig m n = (n + fromIntegral (digitToInt m)) / 10
-
-stringlit = bracket (char '"') inside (char '"') >>= return . StringLit
-  where inside = many ((char '\\' >> char '"') +++ sat (/='"'))
-
  --
  -- so, let's now munge up our data a little bit...
  --  (right now we just pull out the string literals)
+ -- for this we define a tiny state monad.  We'll abstract all this
+ -- out at a later point.  XXXrcd.
 
+data TwS a = TwS (Int -> (a,Int))
+
+instance Monad TwS where
+  (TwS t) >>= f	= TwS (\x -> let (a,s) = t x
+				 TwS f2 = f a in
+				 f2 s)
+  return v	= TwS (\x -> (v, x))
+
+incTwS = TwS (\s -> ((), s + 1)) 
+readTwS = TwS (\s -> (s,s))
+runTwS s0 (TwS c) = c s0
+
+sample = (TwS (\x -> ("foodle!",x+1)))
+
+sample2 x = do a <- x
+	       incTwS
+	       return a
+
+sample3 :: TwS String
+sample3 = return "foodle!"
+
+sample4 = do x <- sample3
+	     incTwS
+	     incTwS
+	     return x
+
+sample5 x = do incTwS
+	       return x
+
+ -- runTwS 1 (do x <- sample3; incTwS; incTwS; return x)
+
+-- traverseS' :: Stmnt -> TwS ([Cconstructs],Stmnt)
+traverseS' (IfStmnt e s) = do (e',e'') <- traverseE' e
+			      (s',s'') <- traverseS' s
+			      return (e'++s', (IfStmnt e'' s''))
+traverseS' (WhileStmnt e s) = do (e',e'') <- traverseE' e
+			         (s',s'') <- traverseS' s
+			         return (e'++s', (WhileStmnt e'' s''))
+traverseS' (ForStmnt es s) = do (es',es'') <- traverseEs' es
+				(s',s'')   <- traverseS' s
+				return (es'++s', (ForStmnt es'' s''))
+traverseS' (DoWhileStmnt s e) = do (e',e'') <- traverseE' e
+				   (s',s'') <- traverseS' s
+				   return (e'++s', (DoWhileStmnt s'' e''))
+traverseS' (ExprStmnt e) = do (e',e'') <- traverseE' e
+			      return (e', (ExprStmnt e''))
+traverseS' (ReturnStmnt e) = do (e',e'') <- traverseE' e
+				return (e', (ReturnStmnt e''))
+traverseS' _ = fail "unknown statement"
+
+
+traverseEs' (e1,e2,e3) = do (e1',e1'') <- traverseE' e1
+			    (e2',e2'') <- traverseE' e2
+			    (e3',e3'') <- traverseE' e3
+			    return (e1'++e2'++e3', (e1'',e2'',e3''))
+
+traverseEl' (e:es) = do (e',e'')   <- traverseE' e
+			(es',es'') <- traverseEl' es
+			return (e'++es',e'':es'')
+traverseEl' _      = return ([],[])
+
+
+traverseE' (LogicalNot e)	= do (e',e'') <- traverseE' e
+				     return (e', LogicalNot e'')
+traverseE' (LogicalNot e)	= do (e',e'') <- traverseE' e
+				     return (e', LogicalNot e'')
+traverseE' (BitwiseNot e)	= do (e',e'') <- traverseE' e
+				     return (e', BitwiseNot e'')
+traverseE' (MathNegate e)	= do (e',e'') <- traverseE' e
+				     return (e', MathNegate e'')
+traverseE' (AssignPreInc e)	= do (e',e'') <- traverseE' e
+				     return (e', AssignPreInc e'')
+traverseE' (AssignPostInc e)	= do (e',e'') <- traverseE' e
+				     return (e', AssignPostInc e'')
+traverseE' (AssignPreDec e)	= do (e',e'') <- traverseE' e
+				     return (e', AssignPreDec e'')
+traverseE' (AssignPostDec e)	= do (e',e'') <- traverseE' e
+				     return (e', AssignPostInc e'')
+traverseE' (Cast t e)		= do (e',e'') <- traverseE' e
+				     return (e', Cast t e'')
+traverseE' t@(Sizeof _)		=    return ([],t)
+traverseE' (Reference e)	= do (e',e'') <- traverseE' e
+				     return (e', Reference e'')
+traverseE' (DeReference e)	= do (e',e'') <- traverseE' e
+				     return (e', Reference e'')
+-- XXXrcd: this is wrong (Assign)
+traverseE' (Assign e f)		= do (e',e'') <- traverseE' e
+				     (f',f'') <- traverseE' f
+				     return (f', Assign e'' f'')
+
+-- XXXrcd: this too is wrong...  FuncCall.
+traverseE' (FuncCall s es)	= do (es',es'') <- traverseEl' es
+				     return (es', FuncCall s es'')
+{-
+traverseE' (FuncCall s es)	= do
+				     return (es', FuncCall s es'')
+  where (es', es'') = foldr (\(x,y) (x',y')->(x++x',y:y')) ([],[]) nexus
+	nexus = map traverseE' es
+-}
+
+traverseE' (StringLit s)	= do num <- readTwS
+				     incTwS
+				     return ([d num], Ident (i num))
+  where	i x = "globalString" ++ show x
+	d x = (DeclVar (Cdecl (PtrType
+		(fromIntegral $ (length s)+1) CharType) (i x)) s)
+
+traverseE' t			= return ([], t)
+
+munge (CP xs) = CP (fst (runTwS 0 (munge' xs)))
+munge' (x:xs) = do f <- fmunge' x
+		   xs <- munge' xs
+		   return (f ++ xs)
+munge' _      = return []
+
+fmunge' (Func x) = fmunge x
+fmunge' t        = return [t]
+
+fmunge (Cfunc t s a (SB d sb)) = do (moredecls, nsb) <- unstringlit sb
+				    return (moredecls ++ [(Func (Cfunc t s a (SB d nsb)))])
+
+unstringlit (x:xs) = do (d,e) <- traverseS' x
+			(ds,es) <- unstringlit xs
+			return (d ++ ds,e:es)
+unstringlit _      = return ([], [])
+
+{-
 munge (CP xs) = CP (concat (map munge' xs))
 
 munge' (Func x) = fmunge x
@@ -516,7 +637,9 @@ fmunge (Cfunc t s a (SB d sb)) = moredecls ++ [(Func (Cfunc t s a (SB d nsb)))]
   where	(moredecls, nsb) = unstringlit sb
 
 unstringlit xs =foldr (\(x,y) (x',y')->(x++x',y:y')) ([],[]) (map us' xs)
-  where us' t = traverseS t
+  where us' t = fst $ runTwS 0 (traverseS' t)
+  -- where us' t = traverseS t
+-}
 
 traverseS (IfStmnt e s) = (e'++s', (IfStmnt e'' s''))
   where	(e',e'') = traverseE e
@@ -568,7 +691,7 @@ traverseE (FuncCall s es)	= (es', FuncCall s es'')
 	nexus = map traverseE es
 
 traverseE (StringLit s)		= ([d], i)
-  where d = (DeclVar (Cdecl (PtrType ((length s)+1) CharType) "globalString") s)
+  where d = (DeclVar (Cdecl (PtrType (fromIntegral $ (length s)+1) CharType) "globalString") s)
 	i = (Ident "globalString")
 
 traverseE t			= ([], t)
@@ -579,45 +702,45 @@ traverseE t			= ([], t)
 
 
  -- Storage Class Specifiers
-tTypedef	= symbol "typedef"	>> return id
-tExtern		= symbol "extern"	>> return id
-tStatic		= symbol "static"	>> return id
-tAuto		= symbol "auto"		>> return id
-tRegister	= symbol "register"	>> return id
+tTypedef	= sym "typedef"	>> return id
+tExtern		= sym "extern"	>> return id
+tStatic		= sym "static"	>> return id
+tAuto		= sym "auto"		>> return id
+tRegister	= sym "register"	>> return id
 
 storage_specifier = tTypedef +++ tExtern +++ tStatic +++ tAuto +++ tRegister
 
  -- Type Qualifiers
-tConst		= symbol "const"	-- >> return id
-tRestrict	= symbol "restrict"	-- >> return id
-tVolatile	= symbol "volatile"	-- >> return id
+tConst		= sym "const"	-- >> return id
+tRestrict	= sym "restrict"	-- >> return id
+tVolatile	= sym "volatile"	-- >> return id
 
 typequal' = many (tConst +++ tRestrict +++ tVolatile)
 
  -- Non-terminal Type Specifiers
-tLong		= symbol "long"		-- >> return id
-tShort		= symbol "short"	-- >> return id
-tSigned		= symbol "signed"	-- >> return id
-tUnsigned	= symbol "unsigned"	-- >> return id
+tLong		= sym "long"		-- >> return id
+tShort		= sym "short"	-- >> return id
+tSigned		= sym "signed"	-- >> return id
+tUnsigned	= sym "unsigned"	-- >> return id
 
 nontermtypes = many (tLong +++ tShort +++ tSigned +++ tUnsigned)
 
  -- Terminal Type Specifiers
-kVoid		= symbol "void"		>> return id
-kChar		= symbol "char"		>> return id
-kInt		= symbol "int"		>> return id
-kFloat		= symbol "float"	>> return id
-kDouble		= symbol "double"	>> return id
-k_Bool		= symbol "_Bool"	>> return id
-k_Complex	= symbol "_Complex"	>> return id
-k_Imaginary	= symbol "_Imaginary"	>> return id
+kVoid		= sym "void"		>> return id
+kChar		= sym "char"		>> return id
+kInt		= sym "int"		>> return id
+kFloat		= sym "float"	>> return id
+kDouble		= sym "double"	>> return id
+k_Bool		= sym "_Bool"	>> return id
+k_Complex	= sym "_Complex"	>> return id
+k_Imaginary	= sym "_Imaginary"	>> return id
 
 termtypes = kVoid +++ kChar +++ kInt +++ kFloat +++ kDouble
 	+++ k_Bool +++ k_Complex +++ k_Imaginary
 
  -- struct/union, etc.
-kStruct		= symbol "struct"	>> return id
-kUnion		= symbol "union"	>> return id
+kStruct		= sym "struct"	>> return id
+kUnion		= sym "union"	>> return id
 
 declaration = storage_specifier >> typequal' >> nontermtypes >> termtypes
 
@@ -626,10 +749,32 @@ declaration = storage_specifier >> typequal' >> nontermtypes >> termtypes
  -- old but interesting code?
 {-
 
-ptr x = many1 (symbol "*") >>= (\y -> return (ptrWlen x (length y))) >>= decl_rest
+ptr x = many1 (punct "*") >>= (\y -> return (ptrWlen x (length y))) >>= decl_rest
 ptrWlen x 0 = x
 ptrWlen x n = PtrType (ptrWlen x (n-1))
 
 -}
+
+--
+-- here are the functions that actually parse each token:
+
+sym x	= tok (PPidentifier x) >> return ()
+punct x = tok (PPpunctuator x) >> return ()
+
+cIdent	= sat isIdent >>= return . getIdent
+  where	isIdent (PPidentifier x) = True
+	isIdent	_		 = False
+	getIdent (PPidentifier x) = x
+
+int = do (PPnumber x) <- sat isNum
+	 return (read x :: Integer)
+  where isNum (PPnumber x)	= True
+	isNum _			= False
+
+cConst = icIdent
+stringlit = sat isStringLit >>= return . getStringLit
+  where	isStringLit (PPstringlit x) = True
+	isStringLit _		    = False
+	getStringLit (PPstringlit x) = StringLit x
 
 \end{code}
