@@ -3,9 +3,6 @@ module Cprogram where
 
 import ParseLib
 
-cShow :: Cprogram -> String
-cShow = show
-
 parseC = CP . fst . head . papply toplevel . fst . head . papply deComment
 
 --
@@ -13,22 +10,28 @@ parseC = CP . fst . head . papply toplevel . fst . head . papply deComment
 --  (I will have to rethink all of this crap.  Oh well.)
 
 newtype Cprogram = CP [Cconstructs]
+	deriving Show
 
+{-
 instance Show Cprogram where
 	show (CP x) = concat (map show x)
+-}
 
 -- parsing C:
 toplevel = junk >> many ext_decl
 
 data Cconstructs = Decl Cdecl | Func Cfunc | Typedef Cdecl
 		   | Structdef String [Cdecl] | DeclVar Cdecl String
+	deriving Show
 
+{-
 instance Show Cconstructs where
 	show (Decl x) = show x ++ ";\n"
 	show (Func x) = show x ++ "\n"
 	show (Typedef x) = "typedef " ++ show x ++ ";\n"
 	show (Structdef x y) = "struct " ++ x ++ "{\n" ++ show y ++ "\n};\n"
 	show (DeclVar x y) = show x ++ " = " ++ show y ++ ";\n"
+-}
 
 ext_decl = typedef +++ structdef +++ function +++ ext2_var_decl
 
@@ -52,7 +55,9 @@ function = do	t <- ftype
 		return (Func (Cfunc t n (Args a) b))
 
 data Cdecl = Cdecl Type String
+	deriving Show
 data Cfunc = Cfunc Type String Args StmntBlock
+	deriving Show
 
 data Type =
 	  IntType | LongType | ShortType | CharType
@@ -62,9 +67,12 @@ data Type =
 	| PtrType Int Type -- size of array is Int?  Integer would be better
 	| ConstType Type
 	| SignedType Type
+	deriving Show
 
+{-
 instance Show Type where
 	show x = showtype x ""
+-}
 
 types = [	(IntType, symbol "int"),
 		(LongLongType, symbol "long" >> symbol "long" >> (symbol "int" +++ symbol "")),
@@ -120,6 +128,7 @@ ftype = foldr (+++) mzero (map p types)
   where	p (x,y) = y >> return x
 
 newtype Args = Args [Cdecl]
+	deriving Show
 
 fargs = decl `sepby` token (char ',')
 fname = token cIdent
@@ -149,24 +158,31 @@ space_if x y	| x /= "" && y /= ""	= x ++ " " ++ y
 		| x /= ""		= x
 		| otherwise		= y
 
+{-
 instance Show (Cdecl) where
 	show (Cdecl t n) = showtype t n
 
 instance Show Args where
 	show (Args x) = concatWith ", " $ map show x
+-}
 
 concatWith x [] = []
 concatWith x y = foldr1 (\a b -> a ++ x ++ b)  y
 
+{-
 instance Show Cfunc where
 	show (Cfunc t n a b) = show t ++ "\n" ++ n ++
 				"(" ++ show a ++ ")\n" ++
 				show b
+-}
 
 data StmntBlock = SB [Cdecl] [Stmnt]
+	deriving Show
 
+{-
 instance Show StmntBlock where
 	show (SB x y) = "{\n" ++ concat (map (++";\n") (map show x)) ++ concatWith "\n" (map show y) ++ "\n}"
+-}
 
 statement_block = do	symbol "{"
 			vars <- var_block
@@ -184,7 +200,9 @@ data Stmnt =
 	| ReturnStmnt Expr
 	| BlockStmnt StmntBlock
 	| ForStmnt (Expr,Expr,Expr) Stmnt
+	deriving Show
 
+{-
 instance Show Stmnt where
 	show (IfStmnt e s)	= "if (" ++ show e ++ ") " ++ show s ++ ";"
 	show (WhileStmnt e s)	= "while (" ++ show e ++ ") " ++ show s ++ ";"
@@ -195,6 +213,7 @@ instance Show Stmnt where
 	show (ReturnStmnt e)	= "return " ++ show e ++ ";"
 	show (BlockStmnt s)	= show s
 	show (ForStmnt e s)	= "for (" ++ forExprShow e ++ ") " ++ show s
+-}
 
 forExprShow (e,f,g) = show e ++ "; " ++ show f ++ "; " ++ show g
 
@@ -255,7 +274,9 @@ data Expr =
 
  -- the ternary operator
 	| IfThenElse	Expr Expr Expr
+	deriving Show
 
+{-
 instance Show Expr where
 	show (Num n)		= "(" ++ show n ++ ")"
 	show (Ident s)		= "(" ++ s ++ ")"
@@ -298,6 +319,7 @@ instance Show Expr where
 	show (CompareG x y)	= "(" ++ show x ++ ">" ++ show y ++ ")"
 	show (CompareGeq x y)	= "(" ++ show x ++ ">=" ++ show y ++ ")"
 	show (CompareNeq x y)	= "(" ++ show x ++ "!=" ++ show y ++ ")"
+-}
 
 --
 --  Parser Helpers:
