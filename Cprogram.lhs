@@ -21,13 +21,14 @@ instance Show Cprogram where
 toplevel = junk >> many ext_decl
 
 data Cconstructs = Decl Cdecl | Func Cfunc | Typedef Cdecl
-		   | Structdef String [Cdecl]
+		   | Structdef String [Cdecl] | DeclVar Cdecl String
 
 instance Show Cconstructs where
 	show (Decl x) = show x ++ ";\n"
 	show (Func x) = show x ++ "\n"
 	show (Typedef x) = "typedef " ++ show x ++ ";\n"
 	show (Structdef x y) = "struct " ++ x ++ "{\n" ++ show y ++ "\n};\n"
+	show (DeclVar x y) = show x ++ " = " ++ show y ++ ";\n"
 
 ext_decl = typedef +++ structdef +++ function +++ ext2_var_decl
 
@@ -58,7 +59,7 @@ data Type =
 	| DoubleType | FloatType | LongLongType
 	| UnsignedType Type | FuncType Type [Cdecl]
 	| SizeType | VoidType
-	| PtrType Type
+	| PtrType Int Type -- size of array is Int?  Integer would be better
 	| ConstType Type
 	| SignedType Type
 
@@ -88,17 +89,26 @@ typequal =	(symbol "const" >> return addConst) +++
 addUnsigned (Cdecl t n) = Cdecl (UnsignedType t) n
 addSigned (Cdecl t n) = Cdecl (SignedType t) n
 
-decl_rest = decl_choice >>= (\x -> decl_func >>= (\y -> return (y . x)))
+decl_rest = decl_choice >>= (\x -> decl_post >>= (\y -> return (y . x)))
 decl_choice = decl_paren +++ ptr +++ constT +++ getName +++ nothing id
-decl_paren = paren decl_rest >>= (\x -> decl_func >>= (\y -> return (x . y)))
+decl_paren = paren decl_rest >>= (\x -> decl_post >>= (\y -> return (x . y)))
 ptr = symbol "*" >> (decl_rest >>= (\x -> return (x . addPtr))) --- +++ return PtrType)
 constT = symbol "const" >> (decl_rest >>= (\x -> return (x . addConst)))
-decl_func = (paren gargs >>= (\x -> return (flip addFunc x))) +++ (return id)
+
+decl_post = many (decl_func +++ decl_arry) >>= (\x -> return (foldr (.) id x))
+decl_func = (paren gargs >>= (\x -> return (flip addFunc x)))
+decl_arry = sbracket arry_brkt >>= (\x -> return (addArry x))
+arry_brkt = int +++ (nothing "" >> return 0)
 gargs = decl `sepby` token (char ',')
 
-addPtr  (Cdecl t n) = Cdecl (PtrType t) n
-addFunc (Cdecl t n) x = Cdecl (FuncType t x) n
-addConst (Cdecl t n) = Cdecl (ConstType t) n
+sbracket x = bracket lbracket x rbracket
+  where	lbracket = token (char '[')
+	rbracket = token (char ']')
+
+addPtr = addArry 0
+addArry  s (Cdecl t n) = Cdecl (PtrType s t) n
+addFunc  (Cdecl t n) x = Cdecl (FuncType t x) n
+addConst (Cdecl t n)   = Cdecl (ConstType t) n
 
 getName = token cIdent >>= return . putName
 putName n (Cdecl t _) = Cdecl t n
@@ -128,9 +138,11 @@ showtype (UnsignedType t) n = "unsigned " ++ showtype t n
 showtype (SignedType t) n = "signed " ++ showtype t n
 showtype (FuncType t xs) n = showtype t (n ++ "(" ++
 				concatWith ", " (map show xs) ++ ")")
-showtype (PtrType t@(FuncType t' xs)) n = showtype t ("(*" ++ n ++ ")")
-showtype (PtrType t) n	= showtype t ("*" ++ n)
-showtype (ConstType t@(PtrType _)) n = showtype t ("const " ++ n)
+showtype (PtrType 0 t@(FuncType t' xs)) n = showtype t ("(*" ++ n ++ ")")
+showtype (PtrType s t@(FuncType t' xs)) n = showtype t ("(" ++ n ++ "[" ++ show s ++ "])")
+showtype (PtrType 0 t) n	= showtype t ("*" ++ n)
+showtype (PtrType s t) n	= showtype t (n ++ "[" ++ show s ++ "]")
+showtype (ConstType t@(PtrType _ _)) n = showtype t ("const " ++ n)
 showtype (ConstType t) n = "const " ++ showtype t n
 
 space_if x y	| x /= "" && y /= ""	= x ++ " " ++ y
@@ -282,67 +294,6 @@ instance Show Expr where
 	show (CompareG x y)	= "(" ++ show x ++ ">" ++ show y ++ ")"
 	show (CompareGeq x y)	= "(" ++ show x ++ ">=" ++ show y ++ ")"
 	show (CompareNeq x y)	= "(" ++ show x ++ "!=" ++ show y ++ ")"
-
---
---
--- Let's start trying to output assembly from this gunk
---
---
-
-asmOut :: Cprogram -> String
-asmOut (CP x) = header ++ (concat $ map asmOut' x) ++ footer
-  where	header =   "\t.file   1 \"test3.c\"\n"
-		 ++"\t.version        \"01.01\"\n"
-		 ++"\t.set noat\n"
-		 ++".text\n"
-	footer = ".ident \"LCC: (Lambda C) lcc-1.0\"\n"
-
-asmOut' (Decl d)	= "	.comm	" ++ name d ++ "," ++ size d ++ "\n"
-  where	name (Cdecl _ s) = s
-	size _		 = "8,8"
-asmOut' (Func f)	=  "\t.align 5\n"
-			++ "\t.globl " ++ name f ++ "\n"
-			++ "\t.ent " ++ name f ++ "\n"
-			++ decode_in_full f
-			++ "\t.end " ++ name f ++ "\n"
-  where	name (Cfunc _ n _ _) = n
-
-data Intruct =	  Inst1
-		| Inst2
-
-decode_in_full (Cfunc _ _ _ (SB _ [(ReturnStmnt (Num x))])) = "\t.bis $31,"++show x++",$0\n" ++ "\tret $31,($26),1\n"
-decode_in_full _ = ""
-
-{-
-asmOut :: Cprogram -> String
-asmOut (CP x) = header ++ (concat $ map asmOut' x)
-  where header =	   "	.file	\"foo.c\"\n"
-			++ "	.version	\"01.01\"\n"
-			++ ".rolandcc_compiled.:\n"
-			++ ".text\n"
-			++ "	.align 4\n"
-
-asmOut' (Decl d)	= "	.comm	" ++ name d ++ "," ++ size d ++ "\n"
-  where	name (Cdecl _ s) = s
-	size _		 = "8,8"
-asmOut' (Func f)	= "	.align 4\n"
-			++".globl "++name f++"\n"
-			++"	.type	" ++ name f ++ ",@function\n"
-			++name f ++ ":\n"
-			++"\tpushl %ebp\n"
-			++"\tmovl %esp,%ebp\n"
-			++ decode_in_full f
-			++"\tleave\n"
-			++"\tret\n"
-			++end_mark ++ ":\n"
-			++"\t.size\t" ++ name f ++ "," ++ end_mark
-			++"-" ++ name f ++ "\n"
-  where name (Cfunc _ n _ _) = n
-	end_mark = ".INT_funcexit_" ++ name f
-
-decode_in_full f = "What?\n"
--}
-
 
 --
 --  Parser Helpers:
@@ -524,6 +475,80 @@ parsenum = iNT >>= (\x -> (fracpart x >>= return . DoubleT) +++ return (IntT x))
 
 stringlit = bracket (char '"') inside (char '"') >>= return . StringLit
   where inside = many ((char '\\' >> char '"') +++ sat (/='"'))
+
+ --
+ -- so, let's now munge up our data a little bit...
+ --  (right now we just pull out the string literals)
+
+munge (CP xs) = CP (concat (map munge' xs))
+
+munge' (Func x) = fmunge x
+munge' x = [x]
+
+fmunge (Cfunc t s a (SB d sb)) = moredecls ++ [(Func (Cfunc t s a (SB d nsb)))]
+  where	(moredecls, nsb) = unstringlit sb
+
+unstringlit xs =foldr (\(x,y) (x',y')->(x++x',y:y')) ([],[]) (map us' xs)
+  where us' t = traverseS t
+
+traverseS (IfStmnt e s) = (e'++s', (IfStmnt e'' s''))
+  where	(e',e'') = traverseE e
+	(s',s'') = traverseS s
+traverseS (WhileStmnt e s) = (e'++s', (WhileStmnt e'' s''))
+  where	(e',e'') = traverseE e
+	(s',s'') = traverseS s
+traverseS (ForStmnt es s) = (es'++s', (ForStmnt es'' s''))
+  where	(es',es'') = traverseEs es
+	(s',s'') = traverseS s
+traverseS (DoWhileStmnt s e) = (e'++s', (DoWhileStmnt s'' e''))
+  where	(e',e'') = traverseE e
+	(s',s'') = traverseS s
+traverseS (ExprStmnt e) = (e', (ExprStmnt e''))
+  where	(e',e'') = traverseE e
+traverseS (ReturnStmnt e) = (e', (ReturnStmnt e''))
+  where	(e',e'') = traverseE e
+traverseS t = ([],t)
+
+traverseEs (e1,e2,e3) = (e1'++e2'++e3', (e1'',e2'',e3''))
+  where (e1',e1'') = traverseE e1
+	(e2',e2'') = traverseE e2
+	(e3',e3'') = traverseE e3
+
+traverseE (LogicalNot e)	= (e', LogicalNot e'')
+  where (e',e'') = traverseE e
+traverseE (BitwiseNot e)	= (e', BitwiseNot e'')
+  where (e',e'') = traverseE e
+traverseE (MathNegate e)	= (e', MathNegate e'')
+  where (e',e'') = traverseE e
+traverseE (AssignPreInc	 e)	= (e', AssignPreInc e'')
+  where (e',e'') = traverseE e
+traverseE (AssignPostInc e)	= (e', AssignPostInc e'')
+  where (e',e'') = traverseE e
+traverseE (AssignPreDec	 e)	= (e', AssignPreDec e'')
+  where (e',e'') = traverseE e
+traverseE (AssignPostDec e)	= (e', AssignPostInc e'')
+  where (e',e'') = traverseE e
+traverseE (Cast	t e)		= (e', Cast t e'')
+  where (e',e'') = traverseE e
+traverseE t@(Sizeof _)		= ([],t)
+traverseE (Reference e)		= (e', Reference e'')
+  where (e',e'') = traverseE e
+traverseE (DeReference e)	= (e', Reference e'')
+  where (e',e'') = traverseE e
+
+traverseE (FuncCall s es)	= (es', FuncCall s es'')
+  where (es', es'') = foldr (\(x,y) (x',y')->(x++x',y:y')) ([],[]) nexus
+	nexus = map traverseE es
+
+traverseE (StringLit s)		= ([d], i)
+  where d = (DeclVar (Cdecl (PtrType ((length s)+1) CharType) "globalString") s)
+	i = (Ident "globalString")
+
+traverseE t			= ([], t)
+
+ -- okay, should I figure out how to make the above crap into an
+ -- instance of class functor?  How would I do that, given that I'd
+ -- need to define an `fmap'...
 
  --
  -- helpers
