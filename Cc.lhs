@@ -11,5 +11,5 @@ import IO
 main = do	x <- getArgs
 		y <- openFile (head x) ReadMode
 		z <- hGetContents y
-		putStr $ alphaAsmOut $ munge $ parseC z
+		putStr $ show $ parseC z
 \end{code}

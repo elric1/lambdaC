@@ -2,6 +2,7 @@
 module Cprogram where
 
 import ParseLib
+import Char
 
 parseC = CP . fst . head . papply toplevel . fst . head . papply deComment
 
