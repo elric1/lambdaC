@@ -244,13 +244,17 @@ data Expr =
 	| AssignRShift	Expr Expr
 	| AssignLShift	Expr Expr
 
-	| FuncCall	String [Expr]
 	| CompareEq	Expr Expr
 	| CompareL	Expr Expr
 	| CompareLeq	Expr Expr
 	| CompareG	Expr Expr
 	| CompareGeq	Expr Expr
 	| CompareNeq	Expr Expr
+
+	| FuncCall	Expr [Expr]
+
+ -- the ternary operator
+	| IfThenElse	Expr Expr Expr
 
 instance Show Expr where
 	show (Num n)		= "(" ++ show n ++ ")"
@@ -262,8 +266,8 @@ instance Show Expr where
 	show (AssignPreInc x)	= "(++" ++ show x ++ ")"
 	show (AssignPreDec x)	= "(--" ++ show x ++ ")"
 	show (Sizeof x)		= "(sizeof(" ++ show x ++ ")"
-	show (Reference x)	= "(*" ++ show x ++ ")"
-	show (DeReference x)	= "(&" ++ show x ++ ")"
+	show (DeReference x)	= "(*" ++ show x ++ ")"
+	show (Reference x)	= "(&" ++ show x ++ ")"
 	show (LogicalAnd x y)	= "(" ++ show x ++ "&&" ++ show y ++ ")"
 	show (LogicalOr x y)	= "(" ++ show x ++ "||" ++ show y ++ ")"
 	show (BitwiseAnd x y)	= "(" ++ show x ++ "&" ++ show y ++ ")"
@@ -287,7 +291,7 @@ instance Show Expr where
 	show (AssignXor x y)	= "(" ++ show x ++ "^=" ++ show y ++ ")"
 	show (AssignRShift x y)	= "(" ++ show x ++ ">>=" ++ show y ++ ")"
 	show (AssignLShift x y)	= "(" ++ show x ++ "<<=" ++ show y ++ ")"
-	show (FuncCall x y)	= x ++ "(" ++ concatWith "," (map show y) ++ ")"
+	show (FuncCall x y)	= show x++"("++concatWith "," (map show y)++")"
 	show (CompareEq x y)	= "(" ++ show x ++ "==" ++ show y ++ ")"
 	show (CompareL x y)	= "(" ++ show x ++ "<" ++ show y ++ ")"
 	show (CompareLeq x y)	= "(" ++ show x ++ "<=" ++ show y ++ ")"
@@ -439,7 +443,7 @@ number = integer >>= return . Num
 term  = (unop >>= (\x -> term >>= (\y -> return (x y)))) +++ func_call +++ cConst +++
 	token icIdent +++ paren (expr' 15)
 
-func_call = token cIdent >>= (\x -> paren (func_args x))
+func_call = token icIdent >>= (\x -> paren (func_args x))
 func_args x = (expr `sepby` token (char ',')) >>= (\y -> return (FuncCall x y))
 
 {-
@@ -452,8 +456,8 @@ unop = 	(symbol "!" >> return LogicalNot) +++
 	(symbol "++" >> return AssignPreInc) +++
 	(symbol "--" >> return AssignPreDec) +++
 	(symbol "sizeof" >> return Sizeof) +++
-	(symbol "*" >> return Reference) +++
-	(symbol "&" >> return DeReference)
+	(symbol "*" >> return DeReference) +++
+	(symbol "&" >> return Reference)
 
 icIdent = cIdent >>= return . Ident
 cIdent = many1 (foldr (+++) mzero (map char cChars))
@@ -550,8 +554,50 @@ traverseE t			= ([], t)
  -- instance of class functor?  How would I do that, given that I'd
  -- need to define an `fmap'...
 
- --
- -- helpers
+
+ -- Storage Class Specifiers
+tTypedef	= symbol "typedef"	>> return id
+tExtern		= symbol "extern"	>> return id
+tStatic		= symbol "static"	>> return id
+tAuto		= symbol "auto"		>> return id
+tRegister	= symbol "register"	>> return id
+
+storage_specifier = tTypedef +++ tExtern +++ tStatic +++ tAuto +++ tRegister
+
+ -- Type Qualifiers
+tConst		= symbol "const"	-- >> return id
+tRestrict	= symbol "restrict"	-- >> return id
+tVolatile	= symbol "volatile"	-- >> return id
+
+typequal' = many (tConst +++ tRestrict +++ tVolatile)
+
+ -- Non-terminal Type Specifiers
+tLong		= symbol "long"		-- >> return id
+tShort		= symbol "short"	-- >> return id
+tSigned		= symbol "signed"	-- >> return id
+tUnsigned	= symbol "unsigned"	-- >> return id
+
+nontermtypes = many (tLong +++ tShort +++ tSigned +++ tUnsigned)
+
+ -- Terminal Type Specifiers
+kVoid		= symbol "void"		>> return id
+kChar		= symbol "char"		>> return id
+kInt		= symbol "int"		>> return id
+kFloat		= symbol "float"	>> return id
+kDouble		= symbol "double"	>> return id
+k_Bool		= symbol "_Bool"	>> return id
+k_Complex	= symbol "_Complex"	>> return id
+k_Imaginary	= symbol "_Imaginary"	>> return id
+
+termtypes = kVoid +++ kChar +++ kInt +++ kFloat +++ kDouble
+	+++ k_Bool +++ k_Complex +++ k_Imaginary
+
+ -- struct/union, etc.
+kStruct		= symbol "struct"	>> return id
+kUnion		= symbol "union"	>> return id
+
+declaration = storage_specifier >> typequal' >> nontermtypes >> termtypes
+
 
  --
  -- old but interesting code?
@@ -562,4 +608,5 @@ ptrWlen x 0 = x
 ptrWlen x n = PtrType (ptrWlen x (n-1))
 
 -}
+
 \end{code}
