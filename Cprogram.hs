@@ -1,4 +1,3 @@
-\begin{code}
 module Cprogram where
 
 import ParseSTLib
@@ -776,5 +775,3 @@ stringlit = sat isStringLit >>= return . getStringLit
   where	isStringLit (PPstringlit x) = True
 	isStringLit _		    = False
 	getStringLit (PPstringlit x) = StringLit x
-
-\end{code}
