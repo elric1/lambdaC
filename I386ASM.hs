@@ -1,4 +1,3 @@
-\begin{code}
 module I386ASM(i386asmOut) where
 
 import Cprogram
@@ -32,4 +31,3 @@ asmOut' (Func f)	= "	.align 4\n"
 	end_mark = ".INT_funcexit_" ++ name f
 
 decode_in_full f = "What?\n"
-\end{code}

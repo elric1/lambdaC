@@ -1,4 +1,3 @@
-\begin{code}
 module AlphaASM where
 
 import Cprogram
@@ -87,9 +86,8 @@ decodeE reg (Assign e@(Ident x) f) = decodeE reg f
 				     ++ show (reg+1) ++ ")\n"
 decodeE _ _			= "unknown expression\n"
 
-\end{code}
 
-
+{-
         .align 5
         .globl main
         .ent main
@@ -108,4 +106,4 @@ $main..ng:
         addq $30,16,$30
         ret $31,($26),1
         .end main
-
+-}

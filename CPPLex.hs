@@ -1,5 +1,3 @@
-\begin{code}
-
 module CPPLex(PPTokenT(..), cppLex, cppLexHeader, outTokens) where
 
 import List
@@ -176,5 +174,3 @@ outTokens (PPotherchar  x:xs) = x:outTokens xs
 outTokens (PPnewline     :xs) = '\n':outTokens xs
 outTokens (PPspace      x:xs) = x ++ outTokens xs
 outTokens (PPcomment    _:xs) = ' ':outTokens xs
-
-\end{code}

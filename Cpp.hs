@@ -1,5 +1,5 @@
 #!/usr/pkg/bin/runhugs -Fcat
-\begin{code}
+
 module Main where
 
 import CPPLex
@@ -10,4 +10,3 @@ import IO
 main = do	x <- getArgs
 		y <- preProcessFile [] (head x)
 		putStr $ outTokens y
-\end{code}

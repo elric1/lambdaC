@@ -1,5 +1,3 @@
-\begin{code}
-
 module CLex where -- (cLex, cReLex, Posn(..), TokenT(..), Token) where
 
 import Array
@@ -291,5 +289,3 @@ punctFuncs =
 	, ('~', mkFunc TokBitNot 1)
 	, ('?', mkFunc TokQMark 1)
 	]
-
-\end{code}

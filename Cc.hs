@@ -1,5 +1,5 @@
 #!/usr/pkg/bin/runhugs -Fcat
-\begin{code}
+
 module Main where
 
 import CPPLex
@@ -101,5 +101,3 @@ parseOpts = p [] []
 		| ".s" `isSuffixOf` z	= p xs ((FTs,z):ys) zs
 		| ".S" `isSuffixOf` z	= p xs ((FTS,z):ys) zs
 	p xs ys zs			= (xs, ys)
-
-\end{code}

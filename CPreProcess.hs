@@ -1,5 +1,3 @@
-\begin{code}
-
 module CPreProcess(preProcessFile)  where
 
 import Array
@@ -90,14 +88,14 @@ ppIf s i     = ppMacroExpand s (PPpunctuator "#", i)
 ppDefine s i = ppLineStart news rest
   where (news,rest) = pMacro s i
 
-\end{code}
+{-
 
 Okay, let's do the silly replacement code.  This will obviously
 have to be rewritten...  We will store the macros as a list of
 key-value pairs.  So, here we index in a `Macro' to a `MacroExpansion'.
 The Macro represents the only unique macro definitions.
 
-\begin{code}
+-}
 
 pMacro s i = (defnM toks:s, rest)
   where	tmp = takeWhile ((/=PPnewline).fst) (thread cppLex i)
@@ -132,7 +130,7 @@ macroReplace (ME x toks) args = do tok <- toks
 replace (Left x) args = (args++repeat (PPspace " ")) !! x
 replace (Right x) _   = x
 
-\end{code}
+{-
 what we want is:
 
 	(toks,rest) = cppLex s
@@ -143,10 +141,8 @@ what we want is:
 	.
 
 so, let's see...
-\begin{code}
+-}
 
 thread :: (s->(a,s)) -> s -> [(a,s)]
 thread f s = (one,two):thread f two
   where (one,two) = f s
-
-\end{code}
