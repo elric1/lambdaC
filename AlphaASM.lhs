@@ -57,8 +57,17 @@ decodeE reg (Num x)		= "\tbis $31," ++ show x ++ ",$" ++ show reg
 				  ++ "\n"
 decodeE reg (Ident s)		= "\tlda $" ++ show reg
 				  ++ "," ++ s ++ "\n"
+-- dereferencing really requires a little more, well, size information
+-- than I am using here, doesn't it?
+decodeE reg (DeReference (Reference e)) = decodeE reg e
 decodeE reg (DeReference e)	= decodeE reg e
 				  ++ "\tldq $" ++ show reg ++ ",0($"
+				  ++ show reg ++ ")\n"
+-- hmmm, this one is rather dependent on the underlying data, isn't
+-- it?..  sigh.
+decodeE reg (Reference (DeReference e)) = decodeE reg e
+decodeE reg (Reference e)	= decodeE reg e
+				  ++ "\tlda $" ++ show reg ++ ",0($"
 				  ++ show reg ++ ")\n"
 decodeE reg (MathAdd x y)	= decodeE reg x ++ decodeE (reg+1) y
 				  ++ "\taddl $" ++ show reg ++ ",$"
@@ -68,7 +77,7 @@ decodeE reg (MathSubt x y)	= decodeE reg x ++ decodeE (reg+1) y
 				  ++ show (reg+1) ++ ",$" ++ show reg ++ "\n"
 -- this FuncCall definition only allows a small number of
 -- function arguments, so far.
-decodeE reg (FuncCall x y)	= concat (map (uncurry decodeE) (zip [16..21] y))
+decodeE reg (FuncCall (Ident x) y)	= concat (map (uncurry decodeE) (zip [16..21] y))
 				  ++ "\tjsr $26," ++ x ++ "\n"
 decodeE _ _			= "unknown expression\n"
 
