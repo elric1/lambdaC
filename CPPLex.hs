@@ -1,5 +1,6 @@
 module CPPLex(PPTokenT(..), cppLex, cppLexHeader, outTokens) where
 
+import Char
 import List
 
 --
